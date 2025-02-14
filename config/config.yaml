@@ -1,0 +1,15 @@
+server:
+	port:8080
+	mode:debug
+
+database:
+	driver:mysql
+	host:localhost
+	port:3306
+	user:root
+	password:268968ABc
+	dbname:media
+
+jwt:
+	expire:24
+	secret:media
