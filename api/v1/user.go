@@ -2,10 +2,12 @@ package v1
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/media/internal/model"
 	"github.com/media/pkg/database"
+	"github.com/media/pkg/email"
 	"github.com/media/pkg/jwt"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -17,9 +19,10 @@ type UserRequest struct {
 }
 
 type UpdateUserRequest struct {
-	Username string `json:"username" binding:"required"`
-	Email    string `json:"email" binding:"required"`
-	Avatar   string `json:"avatar" binding:"required"`
+	Username  string `json:"username"`
+	Email     string `json:"email"`
+	Avatar    string `json:"avatar"`
+	Signature string `json:"signature"`
 }
 
 type ForgotPasswordRequest struct {
@@ -27,7 +30,8 @@ type ForgotPasswordRequest struct {
 }
 
 type ResetPasswordRequest struct {
-	Token       string `json:"token" binding:"required"`
+	Email       string `json:"email" binding:"required"`
+	Code        string `json:"code" binding:"required"`
 	NewPassword string `json:"new_password" binding:"required"`
 }
 
@@ -46,8 +50,8 @@ func Register(c *gin.Context) {
 
 	//通过邮箱和用户名检查用户是否存在
 	var existUser model.User
-	if err := database.DB.Where("username=? AND email=?", req.Username, req.Email).First(&existUser).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "用户已存在"})
+	if err := database.DB.Where("username=?", req.Username).First(&existUser).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "用户名已存在"})
 		return
 	}
 
@@ -83,7 +87,8 @@ func Register(c *gin.Context) {
 // 登录
 func Login(c *gin.Context) {
 	var req struct {
-		Username string `json:"username" binding:"required"`
+		Username string `json:"username"`
+		Email    string `json:"email"`
 		Password string `json:"password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -93,7 +98,7 @@ func Login(c *gin.Context) {
 
 	//检查用户是否存在
 	var user model.User
-	if err := database.DB.Where("username=?", req.Username).First(&user).Error; err != nil {
+	if err := database.DB.Where("username=? OR email=?", req.Username, req.Email).First(&user).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "用户不存在"})
 		return
 	}
@@ -152,4 +157,67 @@ func UpdatePassword(c *gin.Context) {
 	}
 	database.DB.Model(&model.User{}).Where("id=?", userID).Update("password", string(hashedPassword))
 	c.JSON(http.StatusOK, gin.H{"message": "密码更新成功"})
+}
+
+// 忘记密码
+func ForgotPassword(c *gin.Context) {
+	var req ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 检查邮箱是否存在
+	var user model.User
+	if err := database.DB.Where("email=?", req.Email).First(&user).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "邮箱不存在"})
+		return
+	}
+
+	code, err := email.SendCode(req.Email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "发送验证码失败"})
+		return
+	}
+	database.DB.Model(&model.User{}).Where("email=?", req.Email).Update("code", code)
+	//设置验证码过期时间为5分钟
+	database.DB.Model(&model.User{}).Where("email=?", req.Email).Update("code_time", time.Now().Add(5*time.Minute))
+	c.JSON(http.StatusOK, gin.H{"message": "验证码发送成功"})
+}
+
+// 重置密码
+func ResetPassword(c *gin.Context) {
+	var req ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 查找对应用户
+	var user model.User
+	if err := database.DB.Where("email=?", req.Email).First(&user).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "不存在该邮箱"})
+		return
+	}
+
+	// 检查验证码是否过期
+	if user.CodeTime.Before(time.Now()) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码已过期"})
+		return
+	}
+
+	// 检查验证码是否正确
+	if user.Code != req.Code {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
+		return
+	}
+
+	// 更新密码
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
+		return
+	}
+	database.DB.Model(&model.User{}).Where("email=?", req.Email).Update("password", string(hashedPassword))
+	c.JSON(http.StatusOK, gin.H{"message": "密码重置成功"})
 }
