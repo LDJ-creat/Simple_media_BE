@@ -1,7 +1,11 @@
 package v1
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -116,6 +120,58 @@ func Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "登录成功", "token": token})
 }
 
+// 处理头像
+func UploadAvatar(c *gin.Context) {
+	// 获取上传的文件
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择文件"})
+		return
+	}
+
+	// 验证文件大小（例如限制为2MB）
+	if file.Size > 2<<20 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "文件大小不能超过2MB"})
+		return
+	}
+
+	// 验证文件类型
+	ext := strings.ToLower(path.Ext(file.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".gif" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "只支持jpg、jpeg、png、gif格式"})
+		return
+	}
+
+	// 生成随机文件名
+	fileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	avatarPath := fmt.Sprintf("static/avatars/%s", fileName)
+
+	// 确保目录存在
+	if err := os.MkdirAll("static/avatars", 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建目录失败"})
+		return
+	}
+
+	// 保存文件
+	if err := c.SaveUploadedFile(file, avatarPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存文件失败"})
+		return
+	}
+
+	// 更新数据库中的头像URL
+	avatarURL := "/" + avatarPath // 存储相对路径
+	if err := database.DB.Model(&model.User{}).Where("id = ?", c.GetUint("userID")).Update("avatar", avatarURL).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新头像失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "头像上传成功",
+		"url":     avatarURL,
+	})
+
+}
+
 // 修改用户信息
 func UpdateUser(c *gin.Context) {
 	var req UpdateUserRequest
@@ -123,12 +179,15 @@ func UpdateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	//更新到数据库
 	if err := database.DB.Model(&model.User{}).Where("id=?", c.GetUint("userID")).Updates(req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新用户信息失败"})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "用户信息更新成功"})
+	UploadAvatar(c)
 }
 
 // 修改密码
@@ -221,3 +280,5 @@ func ResetPassword(c *gin.Context) {
 	database.DB.Model(&model.User{}).Where("email=?", req.Email).Update("password", string(hashedPassword))
 	c.JSON(http.StatusOK, gin.H{"message": "密码重置成功"})
 }
+
+// 上传头像

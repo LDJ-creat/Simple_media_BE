@@ -7,4 +7,5 @@ import (
 func main() {
 	r := gin.Default()
 	r.Static("/static", "./static") // 配置静态文件服务
+
 }
