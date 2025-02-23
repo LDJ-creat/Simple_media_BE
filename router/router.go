@@ -16,8 +16,15 @@ func InitRouter(r *gin.Engine) {
 		{
 			api.POST("/update", v1.UpdateUser)
 			api.POST("/update-password", v1.UpdatePassword)
-			// api.POST("/forgot-password", v1.ForgotPassword)
-			// api.POST("/reset-password", v1.ResetPassword)
+			api.POST("/forgot-password", v1.ForgotPassword)
+			api.POST("/reset-password", v1.ResetPassword)
+			api.POST("/post", v1.CreatePost)
+			api.PUT("/post/:id", v1.UpdatePost)
+			api.DELETE("/post/:id", v1.DeletePost)
+			api.PUT("/addLike/:id", v1.AddLikeCount)
+			api.PUT("/subLike/:id", v1.SubLikeCount)
+			api.GET("/getPosts", v1.GetPosts)
+			api.GET("/postDetails/:id", v1.GetPostByID)
 		}
 	}
 }
