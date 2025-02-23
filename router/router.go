@@ -25,6 +25,12 @@ func InitRouter(r *gin.Engine) {
 			api.PUT("/subLike/:id", v1.SubLikeCount)
 			api.GET("/getPosts", v1.GetPosts)
 			api.GET("/postDetails/:id", v1.GetPostByID)
+			api.POST("/comment", v1.AddComment)
+			api.DELETE("/comment/:id", v1.DeleteComment)
+			api.GET("/getMyPosts", v1.GetMyPosts)
+			api.GET("/notifications/count", v1.GetNotificationsCount)
+			api.GET("/notifications", v1.GetNotifications)
+			api.GET("/ws", v1.HandleWebSocket)
 		}
 	}
 }

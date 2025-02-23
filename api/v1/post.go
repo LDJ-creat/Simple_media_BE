@@ -420,16 +420,35 @@ func AddComment(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetUint("userID")
+
 	comment := model.Comment{
 		PostID:  receiveComment.PostID,
 		Content: receiveComment.Content,
-		UserID:  c.GetUint("userID"),
+		UserID:  userID,
 	}
 
 	if err := database.DB.Create(&comment).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add comment"})
 		return
 	}
+
+	// 如果评论者不是帖子作者，则创建通知
+	if comment.UserID != userID {
+		notification := model.Notification{
+			SenderID:   comment.UserID,
+			ReceiverID: userID,
+			PostID:     receiveComment.PostID,
+			Type:       "comment",
+		}
+		database.DB.Create(&notification)
+	}
+
+	// 保存评论
+	database.DB.Create(&comment)
+	// SendNotificationToUser(userID, []byte(fmt.Sprintf("你收到了来自%d的评论", comment.UserID)))
+	message := fmt.Sprintf(`{"type": "notification", "count": 1}`)
+	SendNotificationToUser(userID, []byte(message))
 	c.JSON(http.StatusOK, gin.H{"message": "Comment added successfully"})
 }
 
