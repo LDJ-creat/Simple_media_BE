@@ -14,7 +14,7 @@ func InitRouter(r *gin.Engine) {
 		auth := api.Group("")
 		auth.Use(middleware.JWT())
 		{
-			api.POST("/update", v1.UpdateUser)
+			api.POST("/updateUser", v1.UpdateUser)
 			api.POST("/update-password", v1.UpdatePassword)
 			api.POST("/forgot-password", v1.ForgotPassword)
 			api.POST("/reset-password", v1.ResetPassword)

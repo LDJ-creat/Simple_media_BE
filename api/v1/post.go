@@ -428,27 +428,34 @@ func AddComment(c *gin.Context) {
 		UserID:  userID,
 	}
 
+	// 保存评论
 	if err := database.DB.Create(&comment).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add comment"})
 		return
 	}
 
+	// 获取帖子作者ID
+	var post model.Post
+	if err := database.DB.Where("id = ?", receiveComment.PostID).Select("user_id").First(&post).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+		return
+	}
+	receiverId := post.UserID
+
 	// 如果评论者不是帖子作者，则创建通知
-	if comment.UserID != userID {
+	if comment.UserID != receiverId {
 		notification := model.Notification{
 			SenderID:   comment.UserID,
-			ReceiverID: userID,
+			ReceiverID: receiverId,
 			PostID:     receiveComment.PostID,
 			Type:       "comment",
 		}
 		database.DB.Create(&notification)
-	}
 
-	// 保存评论
-	database.DB.Create(&comment)
-	// SendNotificationToUser(userID, []byte(fmt.Sprintf("你收到了来自%d的评论", comment.UserID)))
-	message := fmt.Sprintf(`{"type": "notification", "count": 1}`)
-	SendNotificationToUser(userID, []byte(message))
+		// SendNotificationToUser(userID, []byte(fmt.Sprintf("你收到了来自%d的评论", comment.UserID)))
+		message := `{"type": "notification", "count": 1}`
+		SendNotificationToUser(receiverId, []byte(message))
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "Comment added successfully"})
 }
 
