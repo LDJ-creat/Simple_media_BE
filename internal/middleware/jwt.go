@@ -54,3 +54,34 @@ func JWT() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// AuthMiddleware 中间件
+func WebSocketAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.Query("token") // 从 URL 参数获取 token
+		if token == "" {
+			token = c.GetHeader("Authorization")
+			// 移除 "Bearer " 前缀
+			if len(token) > 7 && token[:7] == "Bearer " {
+				token = token[7:]
+			}
+		}
+
+		if token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+			c.Abort()
+			return
+		}
+
+		// 验证 token 并获取用户 ID
+		claims, err := jwt.ParseToken(token)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "token无效"})
+			c.Abort()
+			return
+		}
+
+		c.Set("userID", claims.UserID)
+		c.Next()
+	}
+}

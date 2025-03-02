@@ -15,8 +15,8 @@ type Claims struct {
 
 func GenerateToken(userID uint) (string, error) {
 	nowTime := time.Now()
-	expireHours := viper.GetInt("jwt.expire")
-	expireTime := nowTime.Add(time.Duration(expireHours) * time.Hour)
+	// 设置为一个月 (30天)
+	expireTime := nowTime.Add(30 * 24 * time.Hour)
 	claims := Claims{
 		UserID: userID,
 		StandardClaims: jwt.StandardClaims{

@@ -1,6 +1,10 @@
 package v1
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -45,46 +49,70 @@ type UpdatePasswordRequest struct {
 
 // 注册
 func Register(c *gin.Context) {
+	// 打印原始请求数据
+	body, _ := io.ReadAll(c.Request.Body)
+	log.Printf("收到注册请求，原始数据: %s", string(body))
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
 	var req UserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("解析请求数据失败: %v", err)
+		log.Printf("请求头 Content-Type: %s", c.GetHeader("Content-Type"))
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":    fmt.Sprintf("无效的请求数据: %v", err),
+			"received": string(body),
+		})
 		return
 	}
 
-	//通过邮箱和用户名检查用户是否存在
+	log.Printf("解析后的请求数据: %+v", req)
+
+	// 检查用户是否存在
 	var existUser model.User
-	if err := database.DB.Where("username=?", req.Username).First(&existUser).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "用户名已存在"})
+	result := database.DB.Where("username=? OR email=?", req.Username, req.Email).First(&existUser)
+	log.Printf("检查用户是否存在: %v", result.Error)
+
+	if existUser.ID != 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "用户已存在"})
 		return
 	}
 
-	//加密密码
+	// 加密密码
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
+		log.Printf("密码加密失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
 		return
 	}
+
 	user := model.User{
 		Username: req.Username,
 		Email:    req.Email,
 		Password: string(hashedPassword),
+		// CodeTime 字段不设置，将默认为 null
 	}
 
-	//创建用户到数据库
 	if err := database.DB.Create(&user).Error; err != nil {
+		log.Printf("创建用户失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建用户失败"})
 		return
 	}
 
-	//生成token
+	// 生成token
 	token, err := jwt.GenerateToken(user.ID)
 	if err != nil {
+		log.Printf("生成token失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成token失败"})
 		return
 	}
+	log.Printf("生成token成功: %v", token)
+	log.Printf("用户创建成功: %v", user)
 
-	c.JSON(http.StatusOK, gin.H{"message": "用户创建成功", "token": token, "userData": user})
-
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "用户创建成功",
+		"token":    token,
+		"userData": user,
+	})
 }
 
 // 登录
@@ -119,58 +147,6 @@ func Login(c *gin.Context) {
 	//返回token和用户信息
 	c.JSON(http.StatusOK, gin.H{"message": "登录成功", "token": token, "userData": user})
 }
-
-// // 处理头像
-// func UploadAvatar(c *gin.Context) {
-// 	// 获取上传的文件
-// 	file, err := c.FormFile("avatar")
-// 	if err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择文件"})
-// 		return
-// 	}
-
-// 	// 验证文件大小（例如限制为2MB）
-// 	if file.Size > 2<<20 {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": "文件大小不能超过2MB"})
-// 		return
-// 	}
-
-// 	// 验证文件类型
-// 	ext := strings.ToLower(path.Ext(file.Filename))
-// 	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".gif" {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": "只支持jpg、jpeg、png、gif格式"})
-// 		return
-// 	}
-
-// 	// 生成随机文件名
-// 	fileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
-// 	avatarPath := fmt.Sprintf("static/avatars/%s", fileName)
-
-// 	// 确保目录存在
-// 	if err := os.MkdirAll("static/avatars", 0755); err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建目录失败"})
-// 		return
-// 	}
-
-// 	// 保存文件
-// 	if err := c.SaveUploadedFile(file, avatarPath); err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存文件失败"})
-// 		return
-// 	}
-
-// 	// 更新数据库中的头像URL
-// 	avatarURL := "/" + avatarPath // 存储相对路径
-// 	if err := database.DB.Model(&model.User{}).Where("id = ?", c.GetUint("userID")).Update("avatar", avatarURL).Error; err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新头像失败"})
-// 		return
-// 	}
-
-// 	c.JSON(http.StatusOK, gin.H{
-// 		"message": "头像上传成功",
-// 		"url":     avatarURL,
-// 	})
-
-// }
 
 // 修改用户信息
 func UpdateUser(c *gin.Context) {
@@ -306,4 +282,16 @@ func ResetPassword(c *gin.Context) {
 	}
 	database.DB.Model(&model.User{}).Where("email=?", req.Email).Update("password", string(hashedPassword))
 	c.JSON(http.StatusOK, gin.H{"message": "密码重置成功"})
+}
+
+// 获取用户信息
+func GetUserInfo(c *gin.Context) {
+	userID := c.GetUint("userID")
+	fmt.Println("userID:", userID)
+	var user model.User
+	if err := database.DB.Where("id=?", userID).First(&user).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "用户不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"userData": user})
 }

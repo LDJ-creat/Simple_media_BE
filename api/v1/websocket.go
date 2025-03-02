@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"sync"
 
+	// "github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/media/pkg/jwt"
 )
 
 var upgrader = websocket.Upgrader{
@@ -27,8 +29,31 @@ var pool = WebSocketPool{
 
 // 处理 WebSocket 连接
 func HandleWebSocket(c *gin.Context) {
-	// 从 JWT 或 Session 中获取当前用户ID（示例假设已解析）
-	userID := c.GetUint("currentUserID")
+
+	token := c.Query("token") // 从 URL 参数获取 token
+	if token == "" {
+		token = c.GetHeader("Authorization")
+		// 移除 "Bearer " 前缀
+		if len(token) > 7 && token[:7] == "Bearer " {
+			token = token[7:]
+		}
+	}
+
+	if token == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		c.Abort()
+		return
+	}
+
+	// 验证 token 并获取用户 ID
+	claims, err := jwt.ParseToken(token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "token无效"})
+		c.Abort()
+		return
+	}
+
+	userID := claims.UserID
 
 	// 升级 HTTP 连接为 WebSocket
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -53,6 +78,8 @@ func HandleWebSocket(c *gin.Context) {
 			break
 		}
 	}
+	c.Set("userID", claims.UserID)
+	c.Next()
 }
 
 // 广播消息给指定用户

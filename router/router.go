@@ -11,10 +11,14 @@ func InitRouter(r *gin.Engine) {
 	{
 		api.POST("/register", v1.Register)
 		api.POST("/login", v1.Login)
+		api.GET("/ws", v1.HandleWebSocket)
+
 		auth := api.Group("")
 		auth.Use(middleware.JWT())
 		{
-			api.POST("/updateUser", v1.UpdateUser)
+			auth.GET("/getUserInfo", v1.GetUserInfo)
+			auth.GET("/getMyPosts", v1.GetMyPosts)
+			auth.POST("/updateUser", v1.UpdateUser)
 			api.POST("/update-password", v1.UpdatePassword)
 			api.POST("/forgot-password", v1.ForgotPassword)
 			api.POST("/reset-password", v1.ResetPassword)
@@ -27,10 +31,10 @@ func InitRouter(r *gin.Engine) {
 			api.GET("/postDetails/:id", v1.GetPostByID)
 			api.POST("/comment", v1.AddComment)
 			api.DELETE("/comment/:id", v1.DeleteComment)
-			api.GET("/getMyPosts", v1.GetMyPosts)
 			api.GET("/notifications/count", v1.GetNotificationsCount)
 			api.GET("/notifications", v1.GetNotifications)
-			api.GET("/ws", v1.HandleWebSocket)
 		}
 	}
+
+	r.Static("/uploads", "./static/uploads")
 }

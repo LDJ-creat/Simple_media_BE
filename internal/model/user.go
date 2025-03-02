@@ -12,8 +12,8 @@ type User struct {
 	Password  string `gorm:"type:varchar(100);not null"`
 	Email     string
 	Phone     string
-	Code      string    //忘记密码时邮箱验证存储验证码
-	CodeTime  time.Time //验证码过期时间
-	Avatar    string    `gorm:"type:varchar(200);default:'/static/avatars/default.png'"`
-	Signature string    `gorm:"type:varchar(200);default:' '"`
+	Code      string
+	CodeTime  *time.Time `gorm:"default:null"` // 改为指针类型，允许为 null
+	Avatar    string     `gorm:"type:varchar(200);default:''"`
+	Signature string     `gorm:"type:varchar(200);default:' '"`
 }

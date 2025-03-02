@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -14,6 +15,16 @@ import (
 	"github.com/media/pkg/database"
 	"gorm.io/gorm"
 )
+
+// 定义上传目录的常量
+const UPLOAD_DIR = "static/uploads"
+
+func init() {
+	// 确保上传目录存在
+	if err := os.MkdirAll(UPLOAD_DIR, 0755); err != nil {
+		panic(fmt.Sprintf("Failed to create upload directory: %v", err))
+	}
+}
 
 // func CreatePost(c *gin.Context) {
 // 	userID := c.GetUint("userID")
@@ -199,58 +210,73 @@ import (
 // }
 
 func CreatePost(c *gin.Context) {
+	// 获取当前用户ID
 	userID := c.GetUint("userID")
-	form, _ := c.MultipartForm()
-	content := form.Value["content"][0]
-	post := model.Post{
-		Content: content,
-		UserID:  userID,
-	}
-
-	files := form.File["media"]
-	medias := []model.Media{}
-	for _, file := range files {
-		//检查文件大小
-		if file.Size > 10<<20 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "File size too large"})
-			return
-		}
-
-		//生成唯一文件名
-		fileExt := filepath.Ext(file.Filename)
-		fileName := uuid.New().String() + fileExt
-
-		// 确保目录存在
-		if err := os.MkdirAll("static/uploads", 0755); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建目录失败"})
-			return
-		}
-
-		//保存文件
-		dst := filepath.Join("static/uploads", fileName)
-		if err := c.SaveUploadedFile(file, dst); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
-		}
-
-		//保存文件信息到数据库
-		mediaType := "image"
-		if strings.Contains(file.Header.Get("Content-Type"), "video") {
-			mediaType = "video"
-		}
-		media := model.Media{
-			Path: dst,
-			Type: mediaType,
-			// PostID:post.ID,会自动添加，无需手动管理
-		}
-		medias = append(medias, media)
-
-	}
-	post.Media = medias
-	if err := database.DB.Create(&post).Error; err != nil { //因为post表和media表通过外键postID关联，所以创建post时，会自动创建media并填充media表中的postID
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create post"})
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Post created successfully", "postID": post.ID})
+
+	// 解析multipart form
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无法解析表单数据"})
+		return
+	}
+
+	// 获取内容
+	content := ""
+	if contentValues := form.Value["content"]; len(contentValues) > 0 {
+		content = contentValues[0]
+	}
+
+	// 获取媒体文件
+	files := form.File["media[]"]
+	media := []model.Media{}
+
+	// 处理每个上传的文件
+	for _, file := range files {
+		// 生成唯一的文件名
+		ext := filepath.Ext(file.Filename)
+		filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+
+		// 使用绝对路径保存文件
+		absPath := filepath.Join(UPLOAD_DIR, filename)
+		if err := c.SaveUploadedFile(file, absPath); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存文件失败"})
+			return
+		}
+
+		// 判断文件类型
+		mediaType := "image"
+		ext = strings.ToLower(ext)
+		if ext == ".mp4" || ext == ".mov" || ext == ".avi" || ext == ".wmv" ||
+			strings.HasPrefix(strings.ToLower(file.Header.Get("Content-Type")), "video/") {
+			mediaType = "video"
+		}
+
+		media = append(media, model.Media{
+			Path: "/uploads/" + filename,
+			Type: mediaType,
+		})
+	}
+
+	// 创建帖子记录
+	post := model.Post{
+		UserID:  userID,
+		Content: content,
+		Media:   media,
+	}
+
+	if err := database.DB.Create(&post).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建帖子失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "帖子创建成功",
+		"post":    post,
+	})
 }
 
 func UpdatePost(c *gin.Context) {
@@ -265,7 +291,7 @@ func UpdatePost(c *gin.Context) {
 	form, _ := c.MultipartForm()
 	content := form.Value["content"][0]
 	keepMediaIDs := form.Value["keepMediaIDs"] //需要保留的媒体ID
-	newMedias := form.File["newMedias"]        //新上传的媒体
+	newMedias := form.File["media[]"]          //新上传的媒体
 
 	//更新帖子内容
 	post.Content = content
