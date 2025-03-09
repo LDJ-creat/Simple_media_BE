@@ -27,7 +27,7 @@ type Post struct {
 type Media struct {
 	gorm.Model
 	PostID uint   `gorm:"not null"`
-	Path   string `gorm:"type:varchar(200);not null"`
+	Uri    string `gorm:"type:varchar(200);not null"`
 	Type   string `gorm:"type:varchar(20);not null;ENUM('image','video')"`
 	Post   Post   `gorm:"foreignKey:PostID;constraint:OnDelete:CASCADE" json:"-"` //相互关联,因为循环引用，所以用json:"-"表示忽略POST字段的输出
 

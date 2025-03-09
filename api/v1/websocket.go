@@ -92,3 +92,13 @@ func SendNotificationToUser(userID uint, message []byte) {
 		}
 	}
 }
+
+func SendNewPostToUser(userID uint, message []byte) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if conn, ok := pool.clients[userID]; ok {
+		if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
+			log.Println("WebSocket send error:", err)
+		}
+	}
+}

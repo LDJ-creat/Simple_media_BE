@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"encoding/json"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/media/internal/model"
@@ -256,7 +258,7 @@ func CreatePost(c *gin.Context) {
 		}
 
 		media = append(media, model.Media{
-			Path: "/uploads/" + filename,
+			Uri:  "/uploads/" + filename,
 			Type: mediaType,
 		})
 	}
@@ -272,6 +274,14 @@ func CreatePost(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建帖子失败"})
 		return
 	}
+
+	// 添加WebSocket通知
+	message := gin.H{
+		"type": "new_post",
+		"post": post,
+	}
+	messageBytes, _ := json.Marshal(message)
+	SendNewPostToUser(userID, messageBytes)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "帖子创建成功",
@@ -332,9 +342,8 @@ func UpdatePost(c *gin.Context) {
 			mediaType = "video"
 		}
 		media := model.Media{
-			Path:   dst,
-			Type:   mediaType,
-			PostID: post.ID,
+			Uri:  dst,
+			Type: mediaType,
 		}
 		database.DB.Create(&media)
 
@@ -360,7 +369,7 @@ func AddLikeCount(c *gin.Context) {
 	postID := c.Param("id")
 	// database.DB.Model(&model.Post{}).Where("id = ? AND user_id = ?", postID, userID).Update("like_count", gorm.Expr("like_count + 1"))
 	var post model.Post
-	result := database.DB.Where("id=? AND user_id=?", postID, userID).First(&post)
+	result := database.DB.Where("id=?", postID).First(&post)
 	if result.Error != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
 		return
