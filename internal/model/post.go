@@ -18,8 +18,8 @@ type Post struct {
 	gorm.Model
 	UserID    uint      `gorm:"not null"`
 	Content   string    `gorm:"type:text"`
-	LikeCount []uint    `gorm:"type:json"`         //存储点赞用户的ID
-	Media     []Media   `gorm:"foreignKey:PostID"` //这个字段不会存入post表，而是存到media表
+	LikeCount []uint    `gorm:"type:json;serializer:json"`
+	Media     []Media   `gorm:"foreignKey:PostID"`
 	User      User      `gorm:"foreignKey:UserID"`
 	Comment   []Comment `gorm:"foreignKey:PostID"`
 }
@@ -39,5 +39,5 @@ type Comment struct {
 	UserID  uint   `gorm:"not null"`
 	Content string `gorm:"type:text"`
 	Post    Post   `gorm:"foreignKey:PostID;constraint:OnDelete:CASCADE" json:"-"` //相互关联
-	User    User   `gorm:"foreignKey:UserID" json:"-"`
+	User    User   `gorm:"foreignKey:UserID"`
 }

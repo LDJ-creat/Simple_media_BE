@@ -63,7 +63,7 @@ func InitDatabase() error {
 	}
 
 	// 自动迁移
-	err = db.AutoMigrate(&model.User{}, &model.Post{}, &model.Media{}, &model.Comment{})
+	err = db.AutoMigrate(&model.User{}, &model.Post{}, &model.Media{}, &model.Comment{}, &model.Notification{})
 	if err != nil {
 		return fmt.Errorf("自动迁移失败: %v", err)
 	}

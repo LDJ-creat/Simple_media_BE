@@ -365,41 +365,82 @@ func DeletePost(c *gin.Context) {
 }
 
 func AddLikeCount(c *gin.Context) {
-	userID := c.GetUint("userID") //点赞用户的ID
+	userID := c.GetUint("userID")
 	postID := c.Param("id")
-	// database.DB.Model(&model.Post{}).Where("id = ? AND user_id = ?", postID, userID).Update("like_count", gorm.Expr("like_count + 1"))
+
 	var post model.Post
-	result := database.DB.Where("id=?", postID).First(&post)
-	if result.Error != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+	if err := database.DB.First(&post, postID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "帖子未找到"})
 		return
 	}
+
+	// 检查是否已经点赞
+	for _, id := range post.LikeCount {
+		if id == userID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "已经点赞过了"})
+			return
+		}
+	}
+
+	// 如果 LikeCount 为 nil，初始化它
+	if post.LikeCount == nil {
+		post.LikeCount = make([]uint, 0)
+	}
+
+	// 添加新的点赞
 	post.LikeCount = append(post.LikeCount, userID)
-	database.DB.Save(&post)
-	c.JSON(http.StatusOK, gin.H{"message": "Like count added successfully"})
+
+	// 保存更新
+	if err := database.DB.Save(&post).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "点赞失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "点赞成功"})
 }
 
 func SubLikeCount(c *gin.Context) {
 	userID := c.GetUint("userID")
 	postID := c.Param("id")
+
 	var post model.Post
-	result := database.DB.Where("id=? AND user_id=?", postID, userID).First(&post)
-	if result.Error != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+	if err := database.DB.First(&post, postID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "帖子未找到"})
 		return
 	}
 
-	// 手动过滤掉当前用户ID
+	// 如果 LikeCount 为 nil，初始化它
+	if post.LikeCount == nil {
+		post.LikeCount = make([]uint, 0)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "还没有点赞"})
+		return
+	}
+
+	// 移除点赞
 	newLikeCount := make([]uint, 0)
+	found := false
 	for _, id := range post.LikeCount {
 		if id != userID {
 			newLikeCount = append(newLikeCount, id)
+		} else {
+			found = true
 		}
 	}
+
+	if !found {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "还没有点赞"})
+		return
+	}
+
 	post.LikeCount = newLikeCount
 
-	database.DB.Save(&post)
-	c.JSON(http.StatusOK, gin.H{"message": "Like count subtracted successfully"})
+	// 保存更新
+	if err := database.DB.Save(&post).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "取消点赞失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "取消点赞成功"})
 }
 
 // 用于主页面的渲染，只返回media中的一个
@@ -439,70 +480,124 @@ func GetPosts(c *gin.Context) {
 func GetPostByID(c *gin.Context) {
 	postID := c.Param("id")
 	var post model.Post
-	if err := database.DB.Preload("Media").Preload("User").Preload("Comment").Preload("Comment.User").First(&post, postID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+
+	// 修改查询以确保加载所有关联数据
+	if err := database.DB.
+		Preload("Media").
+		Preload("User").
+		Preload("Comment", func(db *gorm.DB) *gorm.DB {
+			return db.Order("created_at DESC") // 按创建时间倒序排列评论
+		}).
+		Preload("Comment.User", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id, username, avatar") // 只选择需要的用户字段
+		}).
+		First(&post, postID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "帖子未找到"})
+		return
 	}
-	c.JSON(http.StatusOK, gin.H{"post": post})
+
+	// 确保评论数据完整性
+	for i := range post.Comment {
+		if post.Comment[i].User.ID == 0 {
+			// 如果评论的用户信息缺失，尝试重新获取
+			var user model.User
+			if err := database.DB.Select("id, username, avatar").
+				First(&user, post.Comment[i].UserID).Error; err == nil {
+				post.Comment[i].User = user
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"post":    post,
+		"success": true,
+	})
 }
 
 func AddComment(c *gin.Context) {
-	var receiveComment struct {
-		PostID  uint   `json:"post_id"`
-		Content string `json:"content"`
+	// 修改接收结构体以匹配前端数据结构
+	var request struct {
+		PostID  json.Number `json:"PostID"`
+		Content string      `json:"Content"`
 	}
-	if err := c.ShouldBindJSON(&receiveComment); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "解析请求数据失败",
+			"detail": err.Error(),
+		})
+		return
+	}
+
+	// 转换 PostID 为 uint
+	postIDInt, err := request.PostID.Int64()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "无效的帖子ID",
+			"detail": err.Error(),
+		})
+		return
+	}
+	postID := uint(postIDInt)
+
+	// 验证帖子是否存在
+	var post model.Post
+	if err := database.DB.First(&post, postID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "帖子不存在"})
 		return
 	}
 
 	userID := c.GetUint("userID")
 
 	comment := model.Comment{
-		PostID:  receiveComment.PostID,
-		Content: receiveComment.Content,
+		PostID:  postID,
+		Content: request.Content,
 		UserID:  userID,
 	}
 
 	// 保存评论
 	if err := database.DB.Create(&comment).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add comment"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "添加评论失败",
+			"detail": err.Error(),
+		})
 		return
 	}
 
 	// 获取帖子作者ID
-	var post model.Post
-	if err := database.DB.Where("id = ?", receiveComment.PostID).Select("user_id").First(&post).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
-		return
-	}
-	receiverId := post.UserID
+	receiverID := post.UserID
 
 	// 如果评论者不是帖子作者，则创建通知
-	if comment.UserID != receiverId {
+	if comment.UserID != receiverID {
 		notification := model.Notification{
 			SenderID:   comment.UserID,
-			ReceiverID: receiverId,
-			PostID:     receiveComment.PostID,
+			ReceiverID: receiverID,
+			PostID:     postID,
 			Type:       "comment",
 		}
 		database.DB.Create(&notification)
 
-		// SendNotificationToUser(userID, []byte(fmt.Sprintf("你收到了来自%d的评论", comment.UserID)))
 		message := `{"type": "notification", "count": 1}`
-		SendNotificationToUser(receiverId, []byte(message))
+		SendNotificationToUser(receiverID, []byte(message))
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Comment added successfully"})
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "评论添加成功",
+		"comment": comment,
+	})
 }
 
 func DeleteComment(c *gin.Context) {
 	userID := c.GetUint("userID")
-	postID := c.Param("postID")
+	postID := c.Param("id")
 
-	if err := database.DB.Where("postID=? AND user_id=?", postID, userID).Delete(&model.Comment{}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete comment"})
+	// 修改 SQL 查询中的列名 postID 为 post_id
+	if err := database.DB.Where("post_id = ? AND user_id = ?", postID, userID).Delete(&model.Comment{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除评论失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Comment deleted successfully"})
+
+	c.JSON(http.StatusOK, gin.H{"message": "评论删除成功"})
 }
 
 // 获取我的帖子
