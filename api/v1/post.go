@@ -258,7 +258,7 @@ func CreatePost(c *gin.Context) {
 		}
 
 		media = append(media, model.Media{
-			Uri:  "/uploads/" + filename,
+			Uri:  "/static/uploads/" + filename,
 			Type: mediaType,
 		})
 	}
@@ -450,9 +450,7 @@ func GetPosts(c *gin.Context) {
 
 	var posts []model.Post
 	query := database.DB.
-		Preload("Media", func(db *gorm.DB) *gorm.DB {
-			return db.Order("id DESC").Limit(1) // 按ID降序取第一条媒体
-		}).
+		Preload("Media").
 		Preload("User").
 		Order("id DESC").
 		Limit(pageSize)

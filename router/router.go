@@ -36,5 +36,4 @@ func InitRouter(r *gin.Engine) {
 		}
 	}
 
-	r.Static("/uploads", "./static/uploads")
 }
