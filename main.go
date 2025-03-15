@@ -18,6 +18,6 @@ func main() {
 	router.InitRouter(r)
 
 	// 启动服务器，监听所有地址
-	r.Run("0.0.0.0:8080")
+	r.Run("0.0.0.0:8081")
 
 }

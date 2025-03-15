@@ -1,0 +1,93 @@
+name: Deploy to Aliyun
+
+on:
+  push:
+    branches: [ main ]  # 当 main 分支有推送时触发
+  pull_request:
+    branches: [ main ]  # 当有 PR 到 main 分支时触发
+
+env:
+  GO_VERSION: '1.21'
+  APP_NAME: 'media-server'
+  DEPLOY_PATH: '/www/wwwroot/media'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Go Cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Build Cache
+      uses: actions/cache@v3
+      with:
+        path: media-server
+        key: ${{ runner.os }}-build-${{ github.sha }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'  # 设置 Go 版本
+
+    - name: Build
+      run: |
+        go mod tidy
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o media-server
+
+    - name: Deploy to Aliyun
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        passphrase: ${{ secrets.SSH_PASSPHRASE }}
+        source: "media-server,static/*"  # 需要传输的文件
+        target: "/www/wwwroot/media"     # 目标目录
+        strip_components: 0
+
+    - name: Execute remote commands
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        passphrase: ${{ secrets.SSH_PASSPHRASE }}
+        script: |
+          cd /www/wwwroot/media
+          chmod +x media-server
+          # 停止旧的服务
+          if pgrep media-server; then
+            pkill media-server
+          fi
+          # 启动新的服务
+          nohup ./media-server > server.log 2>&1 &
+          sleep 5
+          # 检查服务是否成功启动
+          if pgrep media-server; then
+            echo "Server started successfully"
+          else
+            echo "Server failed to start"
+            exit 1
+          fi
+
+    - name: Database Migration
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        passphrase: ${{ secrets.SSH_PASSPHRASE }}
+        script: |
+          cd ${{ env.DEPLOY_PATH }}
+          ./media-server migrate
