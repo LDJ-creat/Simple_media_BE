@@ -45,7 +45,7 @@ var DB *gorm.DB
 
 func InitDatabase() error {
 	// 先创建数据库
-	createDB, err := sql.Open("mysql", "root:268968&&ABc@tcp(localhost:3306)/")
+	createDB, err := sql.Open("mysql", "root:268968ABc@tcp(localhost:3306)/")
 	if err != nil {
 		return fmt.Errorf("打开数据库连接失败: %v", err)
 	}

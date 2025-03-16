@@ -39,6 +39,7 @@ jobs:
         source: "media-server,static/*"
         target: "/www/wwwroot/mediaBE"
         debug: true
+        overwrite: true
 
     - name: Execute remote commands
       uses: appleboy/ssh-action@master
