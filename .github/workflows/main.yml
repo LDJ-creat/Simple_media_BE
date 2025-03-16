@@ -9,7 +9,7 @@ on:
 env:
   GO_VERSION: '1.21'
   APP_NAME: 'media-server'
-  DEPLOY_PATH: '/www/wwwroot/media'
+  DEPLOY_PATH: '/www/wwwroot/mediaBE'
 
 jobs:
   deploy:
@@ -19,26 +19,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Go Cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
-    - name: Build Cache
-      uses: actions/cache@v3
-      with:
-        path: media-server
-        key: ${{ runner.os }}-build-${{ github.sha }}
-
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.21'  # 设置 Go 版本
+        go-version: '1.21'
 
     - name: Build
       run: |
@@ -52,9 +36,9 @@ jobs:
         username: ${{ secrets.USERNAME }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         passphrase: ${{ secrets.SSH_PASSPHRASE }}
-        source: "media-server,static/*"  # 需要传输的文件
-        target: "/www/wwwroot/media"     # 目标目录
-        strip_components: 0
+        source: "media-server,static/*"
+        target: "/www/wwwroot/mediaBE"
+        debug: true
 
     - name: Execute remote commands
       uses: appleboy/ssh-action@master
@@ -63,21 +47,20 @@ jobs:
         username: ${{ secrets.USERNAME }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         passphrase: ${{ secrets.SSH_PASSPHRASE }}
+        debug: true
         script: |
-          cd /www/wwwroot/media
+          cd /www/wwwroot/mediaBE
           chmod +x media-server
-          # 停止旧的服务
           if pgrep media-server; then
-            pkill media-server
+            sudo pkill media-server
           fi
-          # 启动新的服务
           nohup ./media-server > server.log 2>&1 &
           sleep 5
-          # 检查服务是否成功启动
           if pgrep media-server; then
             echo "Server started successfully"
           else
             echo "Server failed to start"
+            cat server.log
             exit 1
           fi
 
@@ -88,6 +71,9 @@ jobs:
         username: ${{ secrets.USERNAME }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         passphrase: ${{ secrets.SSH_PASSPHRASE }}
+        debug: true
         script: |
           cd ${{ env.DEPLOY_PATH }}
           ./media-server migrate
+
+

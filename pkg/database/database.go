@@ -57,7 +57,7 @@ func InitDatabase() error {
 	}
 
 	// 再建立gorm连接
-	db, err := gorm.Open(mysql.Open("root:268968&&ABc@tcp(localhost:3306)/media?charset=utf8mb4&parseTime=True&loc=Local"), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open("root:268968ABc@tcp(localhost:3306)/media?charset=utf8mb4&parseTime=True&loc=Local"), &gorm.Config{})
 	if err != nil {
 		return fmt.Errorf("连接数据库失败: %v", err)
 	}
