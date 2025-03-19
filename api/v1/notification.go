@@ -10,7 +10,7 @@ import (
 func GetNotificationsCount(c *gin.Context) {
 	userID := c.GetUint("userID") // 从JWT获取当前用户
 	var count int64
-	database.DB.Model(&model.Notification{}).Where("receiver_id = ? AND read = ?", userID, false).Count(&count)
+	database.DB.Model(&model.Notification{}).Where("receiver_id = ? AND is_read = ?", userID, false).Count(&count)
 	c.JSON(200, gin.H{"count": count})
 }
 
@@ -24,7 +24,7 @@ func GetNotifications(c *gin.Context) {
 		Find(&notifications)
 
 	// 标记为已读
-	database.DB.Model(&model.Notification{}).Where("receiver_id = ?", userID).Update("read", true)
+	database.DB.Model(&model.Notification{}).Where("receiver_id = ?", userID).Update("is_read", true)
 
 	c.JSON(200, notifications)
 }

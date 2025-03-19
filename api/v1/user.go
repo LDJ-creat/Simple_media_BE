@@ -28,18 +28,15 @@ type UserRequest struct {
 type UpdateUserRequest struct {
 	Username  string `json:"username"`
 	Email     string `json:"email"`
+	Phone     string `json:"phone"`
 	Avatar    string `json:"avatar"`
 	Signature string `json:"signature"`
 }
 
-type ForgotPasswordRequest struct {
-	Email string `json:"email" binding:"required"`
-}
-
 type ResetPasswordRequest struct {
-	Email       string `json:"email" binding:"required"`
-	Code        string `json:"code" binding:"required"`
-	NewPassword string `json:"new_password" binding:"required"`
+	Email       string `json:"Email" binding:"required"`
+	Code        string `json:"Code" binding:"required"`
+	NewPassword string `json:"NewPassword" binding:"required"`
 }
 
 type UpdatePasswordRequest struct {
@@ -153,11 +150,13 @@ func UpdateUser(c *gin.Context) {
 	var req UpdateUserRequest
 	form, _ := c.MultipartForm()
 	req.Username = form.Value["username"][0]
-	req.Email = form.Value["email"][0]
+	req.Phone = form.Value["phone"][0]
 	req.Signature = form.Value["signature"][0]
-	file := form.File["avatar"][0]
-	if file != nil {
-		//检查文件大小
+
+	//处理头像上传,因为前端设置了头像无更换不上传，所以需要先判断是否上传了头像
+	if form.File["avatar"] != nil {
+		file := form.File["avatar"][0]
+		//检查文件大小,如果大于10MB则返回错误
 		if file.Size > 10<<20 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "File size too large"})
 			return
@@ -222,54 +221,72 @@ func UpdatePassword(c *gin.Context) {
 }
 
 // 忘记密码
-func ForgotPassword(c *gin.Context) {
-	var req ForgotPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+func SendVerifyCode(c *gin.Context) {
+	Email := c.Query("email")
 
 	// 检查邮箱是否存在
 	var user model.User
-	if err := database.DB.Where("email=?", req.Email).First(&user).Error; err != nil {
+	if err := database.DB.Where("email=?", Email).First(&user).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "邮箱不存在"})
 		return
 	}
 
-	code, err := email.SendCode(req.Email)
+	code, err := email.SendCode(Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "发送验证码失败"})
 		return
 	}
-	database.DB.Model(&model.User{}).Where("email=?", req.Email).Update("code", code)
+	database.DB.Model(&model.User{}).Where("email=?", Email).Update("code", code)
 	//设置验证码过期时间为5分钟
-	database.DB.Model(&model.User{}).Where("email=?", req.Email).Update("code_time", time.Now().Add(5*time.Minute))
+	database.DB.Model(&model.User{}).Where("email=?", Email).Update("code_time", time.Now().Add(5*time.Minute))
 	c.JSON(http.StatusOK, gin.H{"message": "验证码发送成功"})
 }
 
 // 重置密码
 func ResetPassword(c *gin.Context) {
+	// 打印原始请求数据
+	body, _ := io.ReadAll(c.Request.Body)
+	log.Printf("收到重置密码请求，原始数据: %s", string(body))
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
 	var req ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("解析请求数据失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":    fmt.Sprintf("无效的请求数据: %v", err),
+			"received": string(body),
+		})
 		return
 	}
+
+	log.Printf("解析后的请求数据: %+v", req)
 
 	// 查找对应用户
 	var user model.User
 	if err := database.DB.Where("email=?", req.Email).First(&user).Error; err != nil {
+		log.Printf("查找用户失败: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "不存在该邮箱"})
 		return
 	}
 
+	log.Printf("找到用户: %+v", user)
+
 	// 检查验证码是否过期
+	if user.CodeTime == nil {
+		log.Printf("验证码时间为空")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码已过期"})
+		return
+	}
+
 	if user.CodeTime.Before(time.Now()) {
+		log.Printf("验证码已过期，过期时间: %v", user.CodeTime)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码已过期"})
 		return
 	}
 
 	// 检查验证码是否正确
 	if user.Code != req.Code {
+		log.Printf("验证码不匹配，期望: %s, 实际: %s", user.Code, req.Code)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
 		return
 	}
@@ -277,10 +294,18 @@ func ResetPassword(c *gin.Context) {
 	// 更新密码
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
+		log.Printf("密码加密失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
 		return
 	}
-	database.DB.Model(&model.User{}).Where("email=?", req.Email).Update("password", string(hashedPassword))
+
+	if err := database.DB.Model(&model.User{}).Where("email=?", req.Email).Update("password", string(hashedPassword)).Error; err != nil {
+		log.Printf("更新密码失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新密码失败"})
+		return
+	}
+
+	log.Printf("密码重置成功")
 	c.JSON(http.StatusOK, gin.H{"message": "密码重置成功"})
 }
 

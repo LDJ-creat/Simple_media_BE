@@ -16,10 +16,10 @@ func SendCode(targetEmail string) (string, error) {
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
 
 	code := fmt.Sprintf("%06v", rand.New(rand.NewSource(time.Now().UnixNano())).Int31n(1000000))
-
+	fmt.Printf("生成的验证码: %s", code)
 	em := email.NewEmail()
 	// 设置 sender 发送方 的邮箱 ， 此处可以填写自己的邮箱
-	em.From = "LDJ <2271115019@qq.com>"
+	em.From = "damn <2271115019@qq.com>"
 
 	// 设置 receiver 接收方 的邮箱  此处也可以填写自己的邮箱， 就是自己发邮件给自己
 	em.To = []string{targetEmail}
@@ -31,10 +31,12 @@ func SendCode(targetEmail string) (string, error) {
 	em.Text = []byte("验证码是：" + code)
 
 	//设置服务器相关的配置
-	err := em.Send("smtp.qq.com:465", smtp.PlainAuth("", "2271115019@qq.com", "eamrjnyyuckadjhi", "smtp.qq.com"))
-	if err != nil {
-		// log.Printf("发送失败，详细错误: %+v", err)
-		return "", err
-	}
+	em.Send("smtp.qq.com:25", smtp.PlainAuth("", "2271115019@qq.com", "yzmejjozcysudjhj", "smtp.qq.com"))
+	// if err != nil {
+	// 	// log.Printf("发送失败，详细错误: %+v", err)
+	// 	return "", err
+	// }
 	return code, nil
 }
+
+// eamrjnyyuckadjhi
