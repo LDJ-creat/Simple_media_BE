@@ -29,19 +29,7 @@ jobs:
         go mod tidy
         CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o media-server
 
-    - name: Deploy to Aliyun
-      uses: appleboy/scp-action@master
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        passphrase: ${{ secrets.SSH_PASSPHRASE }}
-        source: "media-server,static/*"
-        target: "/www/wwwroot/mediaBE"
-        debug: true
-        overwrite: true
-
-    - name: Execute remote commands
+    - name: Stop existing service
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.HOST }}
@@ -50,11 +38,35 @@ jobs:
         passphrase: ${{ secrets.SSH_PASSPHRASE }}
         debug: true
         script: |
-          cd /www/wwwroot/mediaBE
-          chmod +x media-server
+          cd ${{ env.DEPLOY_PATH }}
           if pgrep media-server; then
             sudo pkill media-server
+            sleep 2
           fi
+
+    - name: Deploy to Aliyun
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        passphrase: ${{ secrets.SSH_PASSPHRASE }}
+        source: "media-server,static/*"
+        target: ${{ env.DEPLOY_PATH }}
+        debug: true
+        overwrite: true
+
+    - name: Start service
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        passphrase: ${{ secrets.SSH_PASSPHRASE }}
+        debug: true
+        script: |
+          cd ${{ env.DEPLOY_PATH }}
+          chmod +x media-server
           nohup ./media-server > server.log 2>&1 &
           sleep 5
           if pgrep media-server; then
